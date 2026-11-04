@@ -1,0 +1,44 @@
+import numpy as np
+import re
+
+def read_alpha_mo_matrix(filename, matrix_size=1670, values_per_line=6):
+    start_reading = False
+    matrix = np.zeros((matrix_size, matrix_size)) 
+    row_data_counts = [0] * matrix_size  
+    float_pattern = re.compile(r"-?\d+\.\d{7}")  
+    time = -1
+
+    with open(filename, 'r') as file:
+        while True:
+            line = file.readline()
+            if not line:  # EOF
+                break
+
+            if "Final Alpha MO Coefficients" in line:
+                start_reading = True
+                time += 1
+                continue
+
+            if "Final Alpha Density Matrix" in line:
+                if (time > 0):
+                    np.save('mo/mo_' +str(time+0) + '.npy', matrix)
+                start_reading = False
+                matrix = np.zeros((matrix_size, matrix_size))  
+                row_data_counts = [0] * matrix_size  
+
+
+            if start_reading:
+                for row in range(matrix_size):
+                    line = file.readline()
+                    #print(line)
+                    floats = float_pattern.findall(line)
+                    if floats:
+                        start_col = row_data_counts[row]
+                        end_col = start_col + len(floats)-1
+                        matrix[row, start_col:end_col+1] = list(map(float, floats))
+                        row_data_counts[row] += len(floats)
+
+    return time
+
+
+read_alpha_mo_matrix('aimd.out')
