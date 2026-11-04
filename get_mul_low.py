@@ -1,0 +1,126 @@
+import argparse
+import numpy as np
+
+# script to parse qchem CIS_ANAL output
+
+# Creates new csv files with data for TDA Mulliken, TDA Lowdin, TDDFT Mulliken, TDDFT Lowdin (depending on options given)
+# Files are saved as [file name] + _mul_tda.csv, +_low_tda.csv, +_mul_tddft.csv, +_low_tddft.csv , unless -o/--output is provided
+
+my_parser = argparse.ArgumentParser(description='Get excited state Mulliken and Lowdin from a QChem TDA/TDDFT output file')
+my_parser.add_argument('inputfile',metavar='qchem_file',help='The QChem output file')
+my_parser.add_argument('Natom',metavar='number_of_atoms',help='Number of atoms in the molecule')
+my_parser.add_argument('--tda',action='store_true',help='Get TDA spectrum')
+my_parser.add_argument('--tddft',action='store_true',help='Get TDDFT spectrum')
+my_parser.add_argument('-o','--output',action='store',help='Specify different name for output file')
+
+args=my_parser.parse_args()
+
+Natoms=int(args.Natom) # number of atoms in the molecule
+inputfile=args.inputfile  # output of TDDFT analysis calculation
+
+if args.output: inp_name= '/'.join(args.inputfile.split('/')[:-1])+ '/'+ args.output
+else: inp_name = inputfile.split('.')[0]
+
+mul_tda = []
+low_tda = []
+
+mul_tddft = []
+low_tddft = []
+
+e_ex=[]
+
+with open(inputfile,'r') as inp:
+    flag=0  # flag indicates whether you're in the excitation energy part of the file
+    flag2=0
+    for i,line in enumerate(inp):
+        if flag2==1:
+            if line.find('Excited state') != -1:
+                ex_line=line.split()
+                e=float(ex_line[3])
+                e_ex.append(e)
+        if flag==1 and args.tda: # TDA analysis
+            # parse excitation info
+            if line.find('Mulliken analysis of TDA') != -1:
+                e,h,D = np.loadtxt(inputfile,skiprows=i+4,max_rows=Natoms+1,unpack=True,usecols=(1,2,3))
+                mul_tda.append(e)
+                mul_tda.append(h)
+                mul_tda.append(D)
+            if line.find('Loewdin analysis of TDA') != -1:
+                if line.find('Mulliken') == -1:
+                    e,h,D = np.loadtxt(inputfile,skiprows=i+4,max_rows=Natoms+1,unpack=True,usecols=(1,2,3))
+                    low_tda.append(e)
+                    low_tda.append(h)
+                    low_tda.append(D)
+        if flag==2: # TDDFT analysis
+            if not args.tddft:
+                break
+            # parse excitation info
+            if line.find('Mulliken analysis of RPA') != -1:
+                e,h,D = np.loadtxt(inputfile,skiprows=i+4,max_rows=Natoms+1,unpack=True,usecols=(1,2,3))
+                mul_tddft.append(e)
+                mul_tddft.append(h)
+                mul_tddft.append(D)
+
+            if line.find('Loewdin analysis of RPA') != -1:
+                if line.find('Mulliken') == -1:
+                    e,h,D = np.loadtxt(inputfile,skiprows=i+4,max_rows=Natoms+1,unpack=True,usecols=(1,2,3))
+                    low_tddft.append(e)
+                    low_tddft.append(h)
+                    low_tddft.append(D)
+
+        if line.find('CIS_N_ROOTS') != -1:
+            Nex = 2*int(line.split()[-1])
+            #for singlets only
+            Nex=int(Nex/2)
+
+        if line.find('Mulliken & Loewdin analysis of') != -1: # beginning of analysis. occurs twice, once for tda then for rpa
+            flag += 1
+            flag2=0
+            if args.tddft and not args.tda: flag = 2
+        if line.find('excitation amplitudes in the canonical') != -1:
+            flag2=1
+        if line.find('excitation amplitudes in the NTO basis') != -1:
+            break
+
+mul_tda_array = np.array(mul_tda).T
+low_tda_array = np.array(low_tda).T
+mul_tddft_array = np.array(mul_tddft).T
+low_tddft_array = np.array(low_tddft).T
+
+
+print('N atoms:', Natoms)
+print('N ex:', Nex)
+print('3*Nex:',3*Nex)
+
+print('Shape of Mul. TDA array:',mul_tda_array.shape)
+print('Shape of Low. TDA array:',low_tda_array.shape)
+print('Shape of Mul. TDDFT array:', mul_tddft_array.shape)
+print('Shape of Low. TDDFT array:',low_tddft_array.shape)
+
+
+atoms = np.array(range(0,Natoms)).reshape(Natoms,1)
+atoms = np.concatenate((atoms+1,np.array([['Sum']])))
+
+if args.tda: mul_tda_array = np.concatenate((atoms,mul_tda_array),axis=1)
+if args.tda: low_tda_array = np.concatenate((atoms,low_tda_array),axis=1)
+if args.tddft: mul_tddft_array = np.concatenate((atoms,mul_tddft_array),axis=1)
+if args.tddft: low_tddft_array = np.concatenate((atoms,low_tddft_array),axis=1)
+
+
+head = ['Atom']
+exs = range(1,Nex+1)
+for ex in exs:
+    head.append(str(ex)+'e')
+    head.append(str(ex)+'h')
+    head.append(str(ex)+'D')
+
+print(e_ex)
+
+# saving the files
+if args.tda: np.savetxt(inp_name+'_mul_tda.csv',mul_tda_array,delimiter=',',header=','.join(head),fmt='%.18s')
+if args.tda: np.savetxt(inp_name+'_low_tda.csv',low_tda_array,delimiter=',',header=','.join(head),fmt='%.18s')
+if args.tda: np.savetxt(inp_name+'_ex.csv',e_ex,delimiter=',',header=','.join(head),fmt='%.18s')
+
+if args.tddft: np.savetxt(inp_name+'_mul_tddft.csv',mul_tddft_array,delimiter=',',header=','.join(head),fmt='%.18s')
+if args.tddft: np.savetxt(inp_name+'_low_tddft.csv',low_tddft_array,delimiter=',',header=','.join(head),fmt='%.18s')
+if args.tddft: np.savetxt(inp_name+'_ex.csv',e_ex,delimiter=',',header=','.join(head),fmt='%.18s')
